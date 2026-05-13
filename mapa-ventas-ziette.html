@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Mapa de Ventas | Ziette</title>
+  <!-- ═══ PWA ═══ -->
+  <meta name="theme-color" content="#F04500">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mapa Ventas">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>if(!window.THREE){document.write('<scr'+'ipt src="https://unpkg.com/three@0.128.0/build/three.min.js"><\/scr'+'ipt>');}</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --orange:       #E85200;
+      --orange-hover: #FF6820;
+      --orange-dim:   rgba(232,82,0,0.15);
+      --bg:           #1a1a1a;
+      --surface:      #222222;
+      --surface2:     #2c2c2c;
+      --border:       #383838;
+      --text:         #f0f0f0;
+      --muted:        #888888;
+      --green:        #4CAF50;
+      --green-light:  #81C784;
+      --gray-apt:     #616161;
+      --gray-light:   #9E9E9E;
+      --header-h:     54px;
+    }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; user-select:none; }
+
+    /* ─── HEADER ─── */
+    .hdr {
+      position:fixed; top:0; left:0; right:0; height:var(--header-h);
+      background:#111; border-bottom:2px solid var(--orange);
+      display:flex; align-items:center; gap:14px; padding:0 18px; z-index:100;
+    }
+    .hdr-logo { font-size:28px; color:var(--orange); font-weight:300; letter-spacing:4px; }
+    .hdr-divider { width:1px; height:26px; background:var(--border); }
+    .hdr-info { flex:1; line-height:1.3; }
+    .hdr-title { font-size:13px; font-weight:600; }
+    .hdr-sub   { font-size:11px; color:var(--muted); }
+    .hdr-stats { display:flex; gap:18px; }
+    .stat { text-align:center; }
+    .stat-v { font-size:17px; font-weight:700; }
+    .stat-l { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+    .stat.avail .stat-v { color:var(--green-light); }
+    .stat.sold  .stat-v { color:var(--gray-light); }
+    .stat.total .stat-v { color:var(--orange); }
+    @media(max-width:600px){ .hdr-stats{display:none} .hdr-sub{display:none} }
+
+    /* ─── CANVAS ─── */
+    #cv {
+      position:fixed; top:var(--header-h); left:0; right:0; bottom:0;
+      display:block; cursor:grab; touch-action:none;
+    }
+    #cv:active { cursor:grabbing; }
+
+    /* ─── TOOLTIP ─── */
+    #tip {
+      position:fixed; pointer-events:none; z-index:90;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:6px; padding:4px 10px; font-size:12px; font-weight:600;
+      display:none; white-space:nowrap;
+    }
+
+    /* ─── INFO PANEL ─── */
+    .panel {
+      position:fixed; top:calc(var(--header-h) + 12px); right:16px;
+      width:230px; background:var(--surface); border:1px solid var(--orange);
+      border-radius:14px; padding:18px; z-index:100;
+      transform:translateX(280px);
+      transition:transform .35s cubic-bezier(.34,1.56,.64,1);
+    }
+    .panel.open { transform:translateX(0); }
+    .panel-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
+    .panel-num  { font-size:22px; font-weight:700; color:var(--orange); line-height:1; }
+    .panel-piso { font-size:11px; color:var(--muted); margin-top:2px; }
+    .badge {
+      font-size:11px; font-weight:700; text-transform:uppercase;
+      padding:3px 10px; border-radius:20px; letter-spacing:.3px;
+    }
+    .badge.avail { background:rgba(76,175,80,.18); color:var(--green-light); border:1px solid var(--green); }
+    .badge.sold  { background:rgba(97,97,97,.25);  color:var(--gray-light);  border:1px solid var(--gray-apt); }
+    .badge.res   { background:rgba(255,152,0,.18); color:#FFB74D;            border:1px solid #FF9800; }
+    .panel-close { background:none; border:none; color:var(--muted); cursor:pointer; font-size:18px; line-height:1; margin-left:8px; }
+    .panel-close:hover { color:var(--text); }
+    .panel-row { display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-top:1px solid var(--border); }
+    .panel-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
+    .panel-val   { font-size:14px; font-weight:600; }
+    @media(max-width:600px){
+      .panel { width:calc(100vw - 32px); right:16px; }
+    }
+
+    /* ─── CONTROLS ─── */
+    .ctrls {
+      position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+      display:flex; gap:8px; z-index:100; flex-wrap:wrap; justify-content:center;
+    }
+    .btn {
+      background:var(--orange); color:#fff; border:none;
+      padding:9px 18px; border-radius:8px; cursor:pointer;
+      font-size:13px; font-weight:600; transition:background .2s, transform .1s;
+      white-space:nowrap;
+    }
+    .btn:hover  { background:var(--orange-hover); }
+    .btn:active { transform:scale(.96); }
+    .btn.ghost {
+      background:transparent; border:1px solid var(--orange);
+      color:var(--orange);
+    }
+    .btn.ghost:hover { background:var(--orange-dim); }
+
+    /* ─── LEGEND ─── */
+    .legend {
+      position:fixed; bottom:70px; right:16px;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:8px; padding:8px 14px; z-index:100;
+    }
+    .leg-item { display:flex; align-items:center; gap:8px; font-size:12px; margin:3px 0; }
+    .leg-dot  { width:13px; height:13px; border-radius:3px; flex-shrink:0; }
+    .leg-dot.avail { background:var(--green); }
+    .leg-dot.sold  { background:var(--gray-apt); }
+
+    /* ─── HINT ─── */
+    .hint {
+      position:fixed; bottom:70px; left:16px;
+      font-size:11px; color:var(--muted); z-index:100; line-height:1.6;
+    }
+    @media(max-width:600px){ .hint{display:none} }
+
+    /* ─── MODAL ─── */
+    .overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,.85);
+      backdrop-filter:blur(6px); z-index:200;
+      display:flex; align-items:center; justify-content:center; padding:16px;
+    }
+    .overlay.hidden { display:none; }
+    .modal {
+      background:var(--surface); border:1px solid var(--orange);
+      border-radius:16px; padding:28px; width:100%; max-width:500px;
+      max-height:88vh; overflow-y:auto;
+    }
+    .modal-title { font-size:17px; font-weight:700; color:var(--orange); margin-bottom:22px; }
+    .fg { margin-bottom:16px; }
+    .fl { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:6px; }
+    .fi {
+      width:100%; background:var(--surface2); border:1px solid var(--border);
+      border-radius:7px; padding:10px 12px; color:var(--text); font-size:14px;
+      transition:border-color .2s;
+    }
+    .fi:focus { outline:none; border-color:var(--orange); }
+    .fi select { appearance:none; }
+    .frow { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media(max-width:480px){ .frow { grid-template-columns:1fr; } }
+    .sb-list { background:var(--surface2); border-radius:8px; padding:12px; }
+    .sb-item {
+      display:grid; grid-template-columns:auto 1fr 80px 60px auto;
+      gap:8px; align-items:center; margin-bottom:8px;
+    }
+    .sb-item:last-child { margin-bottom:0; }
+    .sb-lbl { font-size:12px; color:var(--muted); }
+    .sb-add {
+      width:100%; margin-top:10px; background:none;
+      border:1px dashed var(--orange); color:var(--orange);
+      border-radius:6px; padding:6px; cursor:pointer; font-size:12px;
+    }
+    .sb-add:hover { background:var(--orange-dim); }
+    .sb-rm {
+      background:none; border:1px solid #c00; color:#c00;
+      border-radius:4px; width:24px; height:24px; cursor:pointer;
+      font-size:13px; display:flex; align-items:center; justify-content:center;
+    }
+    .sb-hint { font-size:11px; color:var(--muted); margin-top:6px; }
+    .modal-foot { display:flex; gap:8px; justify-content:flex-end; margin-top:24px; }
+
+    /* ─── WELCOME ─── */
+    .welcome {
+      position:fixed; inset:0; background:var(--bg); z-index:300;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:20px;
+    }
+    .welcome.hidden { display:none; }
+    .wlc-logo { font-size:72px; color:var(--orange); font-weight:300; letter-spacing:8px; }
+    .wlc-sub  { font-size:17px; color:var(--muted); letter-spacing:3px; }
+    .wlc-acts { display:flex; gap:12px; margin-top:12px; flex-wrap:wrap; justify-content:center; }
+    .wlc-note { font-size:11px; color:#444; margin-top:4px; text-align:center; max-width:360px; line-height:1.5; }
+
+    /* ─── SCROLLBAR ─── */
+    ::-webkit-scrollbar { width:5px; }
+    ::-webkit-scrollbar-track { background:var(--surface); }
+    ::-webkit-scrollbar-thumb { background:var(--orange); border-radius:3px; }
+  </style>
+</head>
+<body>
+
+<!-- Banner de error de carga -->
+<div id="errBanner" style="display:none;position:fixed;top:0;left:0;width:100%;z-index:9999;background:#c0392b;color:#fff;padding:16px 20px;font-size:14px;line-height:1.5;align-items:center;gap:12px;box-sizing:border-box;">
+  <span style="font-size:22px;">⚠️</span>
+  <span id="errMsg">Error al cargar la librería 3D. Verifica tu conexión a internet y recarga la página.</span>
+</div>
+
+<!-- ═══════════ WELCOME ═══════════ -->
+<div class="welcome" id="wlc">
+  <div class="wlc-logo">Ziette</div>
+  <div class="wlc-sub">Mapa de Ventas</div>
+  <div class="wlc-acts">
+    <button class="btn" onclick="startDemo()">Ver Proyecto ZIETTE-79</button>
+    <button class="btn ghost" onclick="document.getElementById('xlsInput').click()">📂 Cargar Excel Propio</button>
+  </div>
+  <div class="wlc-note">
+    Los datos del proyecto ZIETTE-79 ya están incluidos.<br>
+    Para actualizar, carga el archivo Excel desde Google Drive.
+  </div>
+</div>
+
+<!-- ═══════════ HEADER ═══════════ -->
+<div class="hdr">
+  <div class="hdr-logo">Ziette</div>
+  <div class="hdr-divider"></div>
+  <div class="hdr-info">
+    <div class="hdr-title" id="hdrTitle">Mapa de Ventas</div>
+    <div class="hdr-sub"  id="hdrSub">—</div>
+  </div>
+  <div class="hdr-stats">
+    <div class="stat avail"><div class="stat-v" id="sAvail">—</div><div class="stat-l">Disponibles</div></div>
+    <div class="stat sold" ><div class="stat-v" id="sSold">—</div> <div class="stat-l">Vendidos</div></div>
+    <div class="stat total"><div class="stat-v" id="sTotal">—</div><div class="stat-l">Total</div></div>
+  </div>
+</div>
+
+<!-- ═══════════ CANVAS ═══════════ -->
+<canvas id="cv"></canvas>
+
+<!-- ═══════════ TOOLTIP ═══════════ -->
+<div id="tip"></div>
+
+<!-- ═══════════ INFO PANEL ═══════════ -->
+<div class="panel" id="pnl">
+  <div class="panel-head">
+    <div>
+      <div class="panel-num" id="pnlNum">—</div>
+      <div class="panel-piso" id="pnlPiso">—</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <button class="panel-close" onclick="closePanel()">✕</button>
+      <div class="badge" id="pnlBadge">—</div>
+    </div>
+  </div>
+  <div class="panel-row">
+    <span class="panel-label">No. Apto</span>
+    <span class="panel-val" id="pnlAptNo">—</span>
+  </div>
+  <div class="panel-row">
+    <span class="panel-label">Área</span>
+    <span class="panel-val" id="pnlArea">—</span>
+  </div>
+  <div class="panel-row">
+    <span class="panel-label">Precio</span>
+    <span class="panel-val" id="pnlPrice">—</span>
+  </div>
+</div>
+
+<!-- ═══════════ LEGEND ═══════════ -->
+<div class="legend">
+  <div class="leg-item"><div class="leg-dot avail"></div>Disponible</div>
+  <div class="leg-item"><div class="leg-dot sold"></div>Vendido</div>
+</div>
+
+<!-- ═══════════ HINT ═══════════ -->
+<div class="hint">
+  🖱 Arrastra → rotar &nbsp;|&nbsp; Scroll → zoom<br>
+  📱 Un dedo → rotar &nbsp;|&nbsp; Pellizco → zoom<br>
+  🏢 Clic en apartamento → ver info
+</div>
+
+<!-- ═══════════ INSTALL BANNER (PWA) ═══════════ -->
+<div id="installBanner" style="
+  display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+  background:#222; border:1px solid #E85200; border-radius:12px;
+  padding:12px 18px; z-index:150; align-items:center; gap:12px;
+  box-shadow:0 4px 24px rgba(0,0,0,.6); max-width:340px; width:90%;
+">
+  <img src="icon-192.png" style="width:40px;height:40px;border-radius:8px;flex-shrink:0">
+  <div style="flex:1;min-width:0">
+    <div style="font-size:13px;font-weight:700;color:#f0f0f0">Instalar app</div>
+    <div style="font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+      Agregar Z79 Ventas a tu pantalla de inicio
+    </div>
+  </div>
+  <button id="installBtn" style="
+    background:#E85200;color:#fff;border:none;padding:8px 14px;
+    border-radius:7px;cursor:pointer;font-size:12px;font-weight:700;
+    flex-shrink:0;
+  ">Instalar</button>
+  <button id="installDismiss" style="
+    background:none;border:none;color:#888;cursor:pointer;font-size:18px;
+    flex-shrink:0;line-height:1;padding:0;
+  ">✕</button>
+</div>
+
+<!-- ═══════════ CONTROLS ═══════════ -->
+<div class="ctrls">
+  <button class="btn ghost" onclick="openCfg()">⚙ Edificio</button>
+  <button class="btn ghost" onclick="document.getElementById('xlsInput').click()">📂 Excel</button>
+  <input type="file" id="xlsInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="loadXLS(event)">
+  <button class="btn ghost" onclick="resetCam()">⌂ Centrar</button>
+</div>
+
+<!-- ═══════════ CONFIG MODAL ═══════════ -->
+<div class="overlay hidden" id="cfgModal">
+  <div class="modal">
+    <div class="modal-title">⚙ Configuración del Edificio</div>
+
+    <div class="fg">
+      <label class="fl">Nombre del Proyecto</label>
+      <input type="text" class="fi" id="cfgName" value="ZIETTE-79">
+    </div>
+
+    <div class="frow">
+      <div class="fg">
+        <label class="fl">Número de Pisos</label>
+        <input type="number" class="fi" id="cfgFloors" value="8" min="1" max="50">
+      </div>
+      <div class="fg">
+        <label class="fl">Piso de inicio</label>
+        <input type="number" class="fi" id="cfgStart" value="2" min="0" max="10">
+      </div>
+    </div>
+
+    <div class="frow">
+      <div class="fg">
+        <label class="fl">Columnas (ancho)</label>
+        <input type="number" class="fi" id="cfgCols" value="5" min="1" max="15">
+      </div>
+      <div class="fg">
+        <label class="fl">Filas (profundidad)</label>
+        <input type="number" class="fi" id="cfgRows" value="2" min="1" max="10">
+      </div>
+    </div>
+
+    <div class="fg">
+      <label class="fl">Retrocesos (Setbacks)</label>
+      <div class="sb-list" id="sbList"><!-- dinámico --></div>
+      <div class="sb-hint">
+        Indica desde qué piso y en qué cara el edificio retrocede (pierde columnas o filas).
+      </div>
+      <button class="sb-add" onclick="addSB()">+ Agregar retroceso</button>
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn ghost" onclick="closeCfg()">Cancelar</button>
+      <button class="btn"       onclick="applyCfg()">Aplicar y Reconstruir</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ SCRIPT ═══════════ -->
+<script>
+// ═══════════════════════════════════════════════════
+// 1. DATOS EMBEBIDOS — ZIETTE-79
+// ═══════════════════════════════════════════════════
+const ZIETTE79 = {
+  name: 'ZIETTE-79',
+  // Layout según planos arquitectónicos reales.
+  // Grilla 5 col × 3 filas; null = núcleo circulación / vacío.
+  // Row 0 = Cara Norte  |  Row 1 = Corredor lateral  |  Row 2 = Cara Sur
+  //
+  // PLANTA TIPO A — Pisos 2-3 (10 aptos)
+  //   Norte:  210 | 201 | --- | 202 | 203
+  //   Medio:  209 | --- | --- | --- | ---
+  //   Sur:    208 | 207 | 206 | 205 | 204
+  //
+  // PLANTA TIPO B — Pisos 4-9 (9 aptos, retroceso cara Este: col 4 vacía)
+  //   x02, x03, x04 alineados en col 3 (cara Este retrocedida)
+  //   Norte:  x09 | x01 | --- | x02 | ---
+  //   Medio:  x08 | --- | --- | x03 | ---
+  //   Sur:    x07 | x06 | x05 | x04 | ---
+  layout: {
+    2: [
+      [210, 201, null, 202, 203],
+      [209, null, null, null, null],
+      [208, 207, 206, 205, 204],
+    ],
+    3: [
+      [310, 301, null, 302, 303],
+      [309, null, null, null, null],
+      [308, 307, 306, 305, 304],
+    ],
+    4: [
+      [409, 401, null, 402, null],
+      [408, null, null, 403, null],
+      [407, 406, 405, 404, null],
+    ],
+    5: [
+      [509, 501, null, 502, null],
+      [508, null, null, 503, null],
+      [507, 506, 505, 504, null],
+    ],
+    6: [
+      [609, 601, null, 602, null],
+      [608, null, null, 603, null],
+      [607, 606, 605, 604, null],
+    ],
+    7: [
+      [709, 701, null, 702, null],
+      [708, null, null, 703, null],
+      [707, 706, 705, 704, null],
+    ],
+    8: [
+      [809, 801, null, 802, null],
+      [808, null, null, 803, null],
+      [807, 806, 805, 804, null],
+    ],
+    9: [
+      [909, 901, null, 902, null],
+      [908, null, null, 903, null],
+      [907, 906, 905, 904, null],
+    ],
+  },
+  // Columnas: Apto No | Área m² | Precio COP | Estado
+  data: {
+    201:{a:40.37,p:687616000,s:'Disponible'},
+    202:{a:35.31,p:613478000,s:'Disponible'},
+    203:{a:34.56,p:599552000,s:'Disponible'},
+    204:{a:46.66,p:803088000,s:'Disponible'},
+    205:{a:35.71,p:626004000,s:'Disponible'},
+    206:{a:35.70,p:626823000,s:'Disponible'},
+    207:{a:35.80,p:628626000,s:'Disponible'},
+    208:{a:43.66,p:770909000,s:'Disponible'},
+    209:{a:37.65,p:0,        s:'Vendido'},
+    210:{a:47.69,p:0,        s:'Vendido'},
+
+    301:{a:40.37,p:687616000,s:'Disponible'},
+    302:{a:35.31,p:612102000,s:'Disponible'},
+    303:{a:34.56,p:607120000,s:'Disponible'},
+    304:{a:45.43,p:788767000,s:'Disponible'},
+    305:{a:35.17,p:623354000,s:'Disponible'},
+    306:{a:35.70,p:632476000,s:'Disponible'},
+    307:{a:35.80,p:625286000,s:'Disponible'},
+    308:{a:43.66,p:0,        s:'Vendido'},
+    309:{a:36.37,p:0,        s:'Vendido'},
+    310:{a:47.69,p:0,        s:'Vendido'},
+
+    401:{a:39.35,p:715251000,s:'Disponible'},
+    402:{a:35.60,p:0,        s:'Vendido'},
+    403:{a:32.82,p:0,        s:'Vendido'},
+    404:{a:38.68,p:0,        s:'Vendido'},
+    405:{a:35.70,p:657694000,s:'Disponible'},
+    406:{a:35.80,p:659537000,s:'Disponible'},
+    407:{a:43.66,p:0,        s:'Vendido'},
+    408:{a:37.65,p:0,        s:'Vendido'},
+    409:{a:47.36,p:0,        s:'Vendido'},
+
+    501:{a:40.37,p:0,        s:'Vendido'},
+    502:{a:35.60,p:659380000,s:'Disponible'},
+    503:{a:32.82,p:597239000,s:'Disponible'},
+    504:{a:38.68,p:701953000,s:'Disponible'},
+    505:{a:35.15,p:661492000,s:'Disponible'},
+    506:{a:34.71,p:662667000,s:'Disponible'},
+    507:{a:43.04,p:0,        s:'Vendido'},
+    508:{a:37.65,p:0,        s:'Vendido'},
+    509:{a:47.69,p:0,        s:'Vendido'},
+
+    601:{a:39.35,p:0,        s:'Vendido'},
+    602:{a:35.60,p:663789000,s:'Disponible'},
+    603:{a:31.68,p:590070000,s:'Disponible'},
+    604:{a:38.04,p:0,        s:'Vendido'},
+    605:{a:35.15,p:0,        s:'Vendido'},
+    606:{a:34.71,p:0,        s:'Vendido'},
+    607:{a:42.62,p:0,        s:'Vendido'},
+    608:{a:37.09,p:0,        s:'Vendido'},
+    609:{a:46.89,p:0,        s:'Vendido'},
+
+    701:{a:40.37,p:0,        s:'Vendido'},
+    702:{a:35.60,p:668198000,s:'Disponible'},
+    703:{a:32.82,p:0,        s:'Vendido'},
+    704:{a:38.68,p:711534000,s:'Disponible'},
+    705:{a:35.70,p:670959000,s:'Disponible'},
+    706:{a:35.80,p:672839000,s:'Disponible'},
+    707:{a:43.66,p:0,        s:'Vendido'},
+    708:{a:37.65,p:0,        s:'Vendido'},
+    709:{a:47.69,p:0,        s:'Vendido'},
+
+    801:{a:39.26,p:0,        s:'Vendido'},
+    802:{a:34.48,p:0,        s:'Vendido'},
+    803:{a:32.34,p:0,        s:'Vendido'},
+    804:{a:38.68,p:0,        s:'Vendido'},
+    805:{a:35.70,p:678034000,s:'Disponible'},
+    806:{a:35.80,p:679933000,s:'Disponible'},
+    807:{a:43.66,p:0,        s:'Vendido'},
+    808:{a:37.65,p:0,        s:'Vendido'},
+    809:{a:47.69,p:0,        s:'Vendido'},
+
+    901:{a:40.37,p:0,        s:'Vendido'},
+    902:{a:35.60,p:676135000,s:'Disponible'},
+    903:{a:32.26,p:0,        s:'Vendido'},
+    904:{a:38.68,p:0,        s:'Vendido'},
+    905:{a:34.62,p:680387000,s:'Disponible'},
+    906:{a:35.34,p:681700000,s:'Disponible'},
+    907:{a:43.24,p:0,        s:'Vendido'},
+    908:{a:36.37,p:0,        s:'Vendido'},
+    909:{a:47.69,p:0,        s:'Vendido'},
+  }
+};
+
+// ═══════════════════════════════════════════════════
+// 2. ESTADO GLOBAL
+// ═══════════════════════════════════════════════════
+let scene, camera, renderer, raycaster, mouse;
+let aptMeshes   = [];   // {mesh, aptNum, data}
+let floorLabels = [];
+let aptDataMap  = {};   // aptNum(string) → {a,p,s}
+let layoutMap   = {};   // aptNum(string) → [floor, col, row]
+
+// Cámara
+let camTheta  = Math.PI * 0.3;
+let camPhi    = Math.PI * 0.32;
+let camRadius = 50;
+let camTarget = new THREE.Vector3(0, 0, 0);
+
+// Drag
+let isDragging  = false;
+let hasMoved    = false;
+let startMX = 0, startMY = 0;
+let lastMX  = 0, lastMY  = 0;
+let lastTouchDist = 0;
+
+// Config del edificio (modo genérico / avanzado)
+let bldCfg = {
+  name:     'ZIETTE-79',
+  floors:   8,
+  startFlr: 2,
+  cols:     5,
+  rows:     2,
+  setbacks: []   // [{fromFloor, face:'N'|'S'|'E'|'W', amount}]
+};
+
+// Config de setbacks en el modal
+let sbList = [];
+
+// Dimensiones de cada apartamento
+const AW = 4.2, AH = 2.8, AD = 5.5, GAP = 0.35;
+
+// ═══════════════════════════════════════════════════
+// 3. INIT THREE.JS
+// ═══════════════════════════════════════════════════
+function initThree() {
+  const canvas = document.getElementById('cv');
+  const W = window.innerWidth, H = window.innerHeight - 54;
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(W, H);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+  renderer.setClearColor(0x1a1a1a);
+
+  scene  = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(38, W / H, 0.1, 600);
+
+  raycaster = new THREE.Raycaster();
+  mouse     = new THREE.Vector2();
+
+  // Luces
+  const amb = new THREE.AmbientLight(0xffffff, 0.38);
+  scene.add(amb);
+
+  const sun = new THREE.DirectionalLight(0xffffff, 0.95);
+  sun.position.set(18, 35, 22);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  scene.add(sun);
+
+  const fill = new THREE.DirectionalLight(0x8899ff, 0.18);
+  fill.position.set(-15, 8, -12);
+  scene.add(fill);
+
+  // Suelo
+  const gGeo = new THREE.PlaneGeometry(300, 300);
+  const gMat = new THREE.MeshLambertMaterial({ color: 0x1c1c1c });
+  const gnd  = new THREE.Mesh(gGeo, gMat);
+  gnd.rotation.x = -Math.PI / 2;
+  gnd.receiveShadow = true;
+  scene.add(gnd);
+
+  // Grid
+  const grid = new THREE.GridHelper(120, 60, 0x252525, 0x212121);
+  scene.add(grid);
+
+  window.addEventListener('resize', onResize);
+  setupMouse();
+  setupTouch();
+  animate();
+}
+
+function onResize() {
+  const W = window.innerWidth, H = window.innerHeight - 54;
+  renderer.setSize(W, H);
+  camera.aspect = W / H;
+  camera.updateProjectionMatrix();
+}
+
+// ═══════════════════════════════════════════════════
+// 4. CÁMARA
+// ═══════════════════════════════════════════════════
+function updateCam() {
+  const s = Math.sin(camPhi), c = Math.cos(camPhi);
+  camera.position.set(
+    camTarget.x + camRadius * s * Math.cos(camTheta),
+    camTarget.y + camRadius * c,
+    camTarget.z + camRadius * s * Math.sin(camTheta)
+  );
+  camera.lookAt(camTarget);
+}
+
+function resetCam() {
+  camTheta  = Math.PI * 0.3;
+  camPhi    = Math.PI * 0.32;
+  const totalH  = bldCfg.floors * (AH + GAP);
+  const baH_r   = AH * 0.95;
+  // Centro vertical entre basamento (abajo) y tope del edificio (arriba)
+  camTarget.set(0, (baH_r + GAP * 0.8 + totalH) / 2, 0);
+  camRadius = Math.max(bldCfg.cols * (AW + GAP), totalH + baH_r, bldCfg.rows * (AD + GAP)) * 1.9 + 14;
+  updateCam();
+}
+
+// ═══════════════════════════════════════════════════
+// 5. CONTROLES MOUSE
+// ═══════════════════════════════════════════════════
+function setupMouse() {
+  const cv = document.getElementById('cv');
+
+  cv.addEventListener('mousedown', e => {
+    isDragging = true; hasMoved = false;
+    startMX = lastMX = e.clientX;
+    startMY = lastMY = e.clientY;
+  });
+
+  cv.addEventListener('mousemove', e => {
+    if (isDragging) {
+      const dx = e.clientX - lastMX, dy = e.clientY - lastMY;
+      if (Math.abs(e.clientX - startMX) > 3 || Math.abs(e.clientY - startMY) > 3) hasMoved = true;
+      camTheta -= dx * 0.007;
+      camPhi = Math.max(0.08, Math.min(1.48, camPhi + dy * 0.007));
+      lastMX = e.clientX; lastMY = e.clientY;
+      updateCam();
+    } else {
+      handleHover(e.clientX, e.clientY);
+    }
+  });
+
+  cv.addEventListener('mouseup', e => {
+    if (!hasMoved) handleClick(e.clientX, e.clientY);
+    isDragging = false;
+  });
+
+  cv.addEventListener('mouseleave', () => {
+    isDragging = false;
+    clearHover();
+    hideTip();
+  });
+
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    camRadius = Math.max(8, Math.min(130, camRadius + e.deltaY * 0.08));
+    updateCam();
+  }, { passive: false });
+}
+
+// ═══════════════════════════════════════════════════
+// 6. CONTROLES TOUCH
+// ═══════════════════════════════════════════════════
+function setupTouch() {
+  const cv = document.getElementById('cv');
+
+  cv.addEventListener('touchstart', e => {
+    e.preventDefault(); hasMoved = false;
+    if (e.touches.length === 1) {
+      isDragging = true;
+      startMX = lastMX = e.touches[0].clientX;
+      startMY = lastMY = e.touches[0].clientY;
+    } else if (e.touches.length === 2) {
+      isDragging = false;
+      lastTouchDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+    }
+  }, { passive: false });
+
+  cv.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches.length === 1 && isDragging) {
+      const dx = e.touches[0].clientX - lastMX;
+      const dy = e.touches[0].clientY - lastMY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasMoved = true;
+      camTheta -= dx * 0.009;
+      camPhi = Math.max(0.08, Math.min(1.48, camPhi + dy * 0.009));
+      lastMX = e.touches[0].clientX; lastMY = e.touches[0].clientY;
+      updateCam();
+    } else if (e.touches.length === 2) {
+      const d = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      camRadius = Math.max(8, Math.min(130, camRadius * lastTouchDist / d));
+      lastTouchDist = d;
+      updateCam();
+    }
+  }, { passive: false });
+
+  cv.addEventListener('touchend', e => {
+    if (!hasMoved && e.changedTouches.length === 1)
+      handleClick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    isDragging = false;
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// 7. RAYCASTING — HOVER / CLICK
+// ═══════════════════════════════════════════════════
+let hoveredMesh = null;
+
+function ndcFromClient(cx, cy) {
+  const cv = document.getElementById('cv');
+  const r  = cv.getBoundingClientRect();
+  return {
+    x:  ((cx - r.left) / r.width)  * 2 - 1,
+    y: -((cy - r.top)  / r.height) * 2 + 1
+  };
+}
+
+function handleHover(cx, cy) {
+  const ndc = ndcFromClient(cx, cy);
+  mouse.set(ndc.x, ndc.y);
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(aptMeshes.map(a => a.mesh));
+  if (hits.length) {
+    const obj = hits[0].object;
+    if (hoveredMesh !== obj) {
+      clearHover();
+      hoveredMesh = obj;
+      obj.material.emissive.setHex(0x2a2a2a);
+      obj.material.emissiveIntensity = 0.5;
+    }
+    const tip = document.getElementById('tip');
+    tip.textContent = `Apto ${obj.userData.aptNum}`;
+    tip.style.display = 'block';
+    tip.style.left = `${cx + 14}px`;
+    tip.style.top  = `${cy - 10}px`;
+  } else {
+    clearHover(); hideTip();
+  }
+}
+
+function clearHover() {
+  if (hoveredMesh) {
+    hoveredMesh.material.emissiveIntensity = 0;
+    hoveredMesh = null;
+  }
+}
+
+function hideTip() { document.getElementById('tip').style.display = 'none'; }
+
+function handleClick(cx, cy) {
+  const ndc = ndcFromClient(cx, cy);
+  mouse.set(ndc.x, ndc.y);
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(aptMeshes.map(a => a.mesh));
+  if (hits.length) {
+    showPanel(hits[0].object.userData);
+  } else {
+    closePanel();
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// 8. CONSTRUCCIÓN DEL EDIFICIO
+// ═══════════════════════════════════════════════════
+function clearBuilding() {
+  aptMeshes.forEach(a => {
+    scene.remove(a.mesh);
+    scene.remove(a.edge);
+  });
+  floorLabels.forEach(l => scene.remove(l));
+  aptMeshes   = [];
+  floorLabels = [];
+}
+
+function buildBuilding(layout) {
+  clearBuilding();
+
+  const floors = Object.keys(layout).map(Number).sort((a,b)=>a-b);
+
+  // Dimensiones máximas
+  let maxCols = 0, maxRows = 0;
+  floors.forEach(f => {
+    maxRows = Math.max(maxRows, layout[f].length);
+    layout[f].forEach(row => { maxCols = Math.max(maxCols, row.length); });
+  });
+
+  const totalW = maxCols * (AW + GAP) - GAP;
+  const totalD = maxRows * (AD + GAP) - GAP;
+  const totalH = floors.length * (AH + GAP) - GAP;
+
+  const offX = -totalW / 2;
+  const offZ = -totalD / 2;
+
+  // ─── BASAMENTO — Piso 1 ───
+  // Bloque único con la huella completa del piso 2, naranja 50% opacidad.
+  const baH   = AH * 0.95;
+  const yBase  = baH + GAP * 0.8;   // offset para que el basamento apoye en y=0
+  const baGeo = new THREE.BoxGeometry(totalW + GAP * 0.6, baH, totalD + GAP * 0.6);
+  const baMat = new THREE.MeshPhongMaterial({
+    color: 0xE85200,
+    transparent: true,
+    opacity: 0.50,
+    shininess: 30,
+  });
+  const baMesh = new THREE.Mesh(baGeo, baMat);
+  baMesh.position.set(0, baH / 2, 0);
+  baMesh.castShadow = true;
+  scene.add(baMesh);
+  floorLabels.push(baMesh);
+
+  // Contorno del basamento
+  const baEdgeGeo = new THREE.EdgesGeometry(baGeo);
+  const baEdgeMat = new THREE.LineBasicMaterial({ color: 0xE85200, transparent: true, opacity: 0.6 });
+  const baEdge    = new THREE.LineSegments(baEdgeGeo, baEdgeMat);
+  baEdge.position.copy(baMesh.position);
+  scene.add(baEdge);
+  floorLabels.push(baEdge);
+
+  // Etiqueta P1
+  const baLbl = makeFloorLabel('P1');
+  baLbl.position.set(offX - AW * 0.8, baH / 2, 0);
+  baLbl.scale.set(3, 1.5, 1);
+  scene.add(baLbl);
+  floorLabels.push(baLbl);
+
+  floors.forEach((floorNum, fi) => {
+    const rows = layout[floorNum];
+
+    // Separador de piso (losa)
+    if (fi > 0) {
+      const floorW = totalW + GAP;
+      const floorD = totalD + GAP;
+      const slabGeo = new THREE.BoxGeometry(floorW, 0.1, floorD);
+      const slabMat = new THREE.MeshLambertMaterial({ color: 0x0c0c0c });
+      const slab    = new THREE.Mesh(slabGeo, slabMat);
+      slab.position.set(0, yBase + fi * (AH + GAP) - GAP * 0.5 - 0.05, 0);
+      scene.add(slab);
+      floorLabels.push(slab);
+    }
+
+    // Etiqueta de piso (sprite con canvas)
+    const lbl = makeFloorLabel(`P${floorNum}`);
+    lbl.position.set(offX - AW * 0.8, yBase + fi * (AH + GAP) + AH / 2, 0);
+    lbl.scale.set(3, 1.5, 1);
+    scene.add(lbl);
+    floorLabels.push(lbl);
+
+    // Apartamentos
+    rows.forEach((row, ri) => {
+      row.forEach((aptNum, ci) => {
+        if (aptNum === null) return; // hueco por retroceso
+
+        const data  = aptDataMap[String(aptNum)] || { a: 0, p: 0, s: 'Disponible' };
+        const color = aptColor(data.s);
+
+        const x = offX + ci * (AW + GAP) + AW / 2;
+        const y = yBase + fi * (AH + GAP) + AH / 2;
+        const z = offZ + ri * (AD + GAP) + AD / 2;
+
+        const geo  = new THREE.BoxGeometry(AW - 0.06, AH - 0.06, AD - 0.06);
+        const mat  = new THREE.MeshPhongMaterial({
+          color, shininess: 25,
+          emissive: new THREE.Color(0x000000),
+          emissiveIntensity: 0,
+        });
+
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x, y, z);
+        mesh.castShadow    = true;
+        mesh.receiveShadow = true;
+        mesh.userData = { aptNum: String(aptNum), floorNum, data };
+
+        // Contorno
+        const eGeo = new THREE.EdgesGeometry(geo);
+        const eMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 });
+        const edge = new THREE.LineSegments(eGeo, eMat);
+        edge.position.copy(mesh.position);
+
+        scene.add(mesh);
+        scene.add(edge);
+        aptMeshes.push({ mesh, edge, aptNum: String(aptNum) });
+      });
+    });
+  });
+
+  // Ajustar cámara — centrar verticalmente entre basamento y tope del edificio
+  const baH_cam = AH * 0.95;
+  const fullH   = yBase + totalH;
+  camTarget.set(0, fullH / 2, 0);
+  camRadius = Math.max(totalW, fullH, totalD) * 1.9 + 12;
+  updateCam();
+  updateStats(floors.length);
+}
+
+function aptColor(status) {
+  const s = (status || '').toLowerCase();
+  if (s.includes('vend'))   return 0x616161;
+  if (s.includes('reserv')) return 0xD4690A;
+  return 0x4CAF50;
+}
+
+// Etiqueta de piso con canvas → sprite
+function makeFloorLabel(text) {
+  const cv  = document.createElement('canvas');
+  cv.width  = 128; cv.height = 64;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,0)';
+  ctx.fillRect(0, 0, 128, 64);
+  ctx.font      = 'bold 30px Arial';
+  ctx.fillStyle = '#E85200';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 120, 32);
+  const tex = new THREE.CanvasTexture(cv);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  return new THREE.Sprite(mat);
+}
+
+// ═══════════════════════════════════════════════════
+// 9. ACTUALIZAR ESTADÍSTICAS
+// ═══════════════════════════════════════════════════
+function updateStats(numFloors) {
+  let avail = 0, sold = 0;
+  aptMeshes.forEach(a => {
+    const s = (a.mesh.userData.data.s || '').toLowerCase();
+    s.includes('vend') ? sold++ : avail++;
+  });
+  const total = avail + sold;
+  document.getElementById('sAvail').textContent = avail;
+  document.getElementById('sSold') .textContent = sold;
+  document.getElementById('sTotal').textContent = total;
+  document.getElementById('hdrTitle').textContent = bldCfg.name || 'Mapa de Ventas';
+  document.getElementById('hdrSub').textContent =
+    `${numFloors} pisos · ${total} aptos · ${avail} disponibles`;
+}
+
+// ═══════════════════════════════════════════════════
+// 10. INFO PANEL
+// ═══════════════════════════════════════════════════
+function showPanel(ud) {
+  const { aptNum, floorNum, data } = ud;
+  const pnl = document.getElementById('pnl');
+
+  document.getElementById('pnlNum').textContent  = `Apto ${aptNum}`;
+  document.getElementById('pnlPiso').textContent = `Piso ${floorNum}`;
+  document.getElementById('pnlAptNo').textContent = aptNum;
+
+  const s     = (data.s || '').toLowerCase();
+  const badge = document.getElementById('pnlBadge');
+  if (s.includes('vend')) {
+    badge.textContent = 'Vendido'; badge.className = 'badge sold';
+  } else if (s.includes('reserv')) {
+    badge.textContent = 'Reservado'; badge.className = 'badge res';
+  } else {
+    badge.textContent = 'Disponible'; badge.className = 'badge avail';
+  }
+
+  document.getElementById('pnlArea').textContent  = data.a ? `${Number(data.a).toFixed(2)} m²` : '—';
+  document.getElementById('pnlPrice').textContent = data.p && data.p > 0 ? fmtCOP(data.p) : (s.includes('vend') ? 'Vendido' : '—');
+
+  pnl.classList.add('open');
+}
+
+function closePanel() { document.getElementById('pnl').classList.remove('open'); }
+
+function fmtCOP(n) {
+  const v = Number(n);
+  if (isNaN(v) || v === 0) return '—';
+  if (v >= 1e9) return `$${(v/1e9).toFixed(2)} B`;
+  if (v >= 1e6) return `$${Math.round(v/1e6).toLocaleString('es-CO')} M`;
+  return new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(v);
+}
+
+// ═══════════════════════════════════════════════════
+// 11. CARGA EXCEL
+// ═══════════════════════════════════════════════════
+function loadXLS(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+
+  document.getElementById('wlc').classList.add('hidden');
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb   = XLSX.read(e.target.result, { type: 'binary' });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      if (!rows.length) { alert('El archivo Excel parece estar vacío.'); return; }
+
+      // Detectar columnas
+      const keys = Object.keys(rows[0]);
+      const findCol = pats => keys.find(k => pats.some(p => k.toLowerCase().includes(p)));
+
+      const colApt   = findCol(['apto','apartamento','unidad','num','no.','#','inmueble']);
+      const colArea  = findCol(['area','área','m2','metros','mt2','superficie']);
+      const colPrice = findCol(['precio','price','valor','venta','costo']);
+      const colSt    = findCol(['estado','status','disponib','condicion']);
+
+      const newData = {};
+      rows.forEach(row => {
+        const rawNum = String(row[colApt] || '').trim().replace(/\D/g,'');
+        if (!rawNum || rawNum.length < 2) return;
+        newData[rawNum] = {
+          a: colArea  ? Number(row[colArea])  || 0 : 0,
+          p: colPrice ? Number(row[colPrice]) || 0 : 0,
+          s: colSt    ? String(row[colSt])         : 'Disponible',
+        };
+      });
+
+      // Detectar layout desde los números de apto
+      const layout = buildLayoutFromData(newData);
+      aptDataMap   = newData;
+      bldCfg.name  = file.name.replace(/\.xlsx?$/i,'');
+      buildBuilding(layout);
+
+    } catch(err) {
+      alert('Error al leer el Excel:\n' + err.message);
+    }
+  };
+  reader.readAsBinaryString(file);
+  ev.target.value = '';
+}
+
+// Construye un layout automático desde los números de apartamento
+function buildLayoutFromData(data) {
+  const floors = {};
+  Object.keys(data).forEach(num => {
+    if (num.length < 3) return;
+    const floorNum = Number(num.slice(0, -2));
+    const aptPos   = Number(num.slice(-2));
+    if (!floors[floorNum]) floors[floorNum] = [];
+    floors[floorNum].push({ pos: aptPos, num: Number(num) });
+  });
+
+  // Ordenar y armar layout en filas (usar 5 columnas por defecto)
+  const layout = {};
+  const COLS = 5;
+  Object.keys(floors).sort((a,b)=>a-b).forEach(f => {
+    const sorted = floors[f].sort((a,b) => a.pos - b.pos).map(x => x.num);
+    // Repartir en filas de COLS
+    const rows = [];
+    for (let i = 0; i < sorted.length; i += COLS) {
+      const row = sorted.slice(i, i + COLS);
+      // Pad con null si la fila está incompleta (retroceso)
+      while (row.length < COLS) row.push(null);
+      rows.push(row);
+    }
+    layout[Number(f)] = rows;
+  });
+  return layout;
+}
+
+// ═══════════════════════════════════════════════════
+// 12. WELCOME / START DEMO
+// ═══════════════════════════════════════════════════
+function startDemo() {
+  if (typeof THREE === 'undefined') {
+    const b = document.getElementById('errBanner');
+    const m = document.getElementById('errMsg');
+    if (b && m) {
+      m.textContent = 'Error: la librería 3D no cargó. Asegúrate de tener internet, recarga la página e intenta de nuevo.';
+      b.style.display = 'flex';
+    } else {
+      alert('Error: la librería 3D (Three.js) no está disponible. Verifica tu conexión e intenta de nuevo.');
+    }
+    return;
+  }
+  document.getElementById('wlc').classList.add('hidden');
+
+  // Cargar datos de ZIETTE-79
+  aptDataMap = {};
+  Object.keys(ZIETTE79.data).forEach(k => { aptDataMap[k] = ZIETTE79.data[k]; });
+  bldCfg.name = ZIETTE79.name;
+  buildBuilding(ZIETTE79.layout);
+}
+
+function hideWelcome() {
+  document.getElementById('wlc').classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════════════
+// 13. CONFIG MODAL
+// ═══════════════════════════════════════════════════
+function openCfg() {
+  document.getElementById('cfgName').value   = bldCfg.name;
+  document.getElementById('cfgFloors').value = bldCfg.floors;
+  document.getElementById('cfgStart').value  = bldCfg.startFlr;
+  document.getElementById('cfgCols').value   = bldCfg.cols;
+  document.getElementById('cfgRows').value   = bldCfg.rows;
+  sbList = [...bldCfg.setbacks];
+  renderSBList();
+  document.getElementById('cfgModal').classList.remove('hidden');
+}
+
+function closeCfg() { document.getElementById('cfgModal').classList.add('hidden'); }
+
+function applyCfg() {
+  bldCfg.name    = document.getElementById('cfgName').value   || 'Proyecto';
+  bldCfg.floors  = parseInt(document.getElementById('cfgFloors').value) || 8;
+  bldCfg.startFlr= parseInt(document.getElementById('cfgStart').value)  || 2;
+  bldCfg.cols    = parseInt(document.getElementById('cfgCols').value)   || 5;
+  bldCfg.rows    = parseInt(document.getElementById('cfgRows').value)   || 2;
+  bldCfg.setbacks= [...sbList];
+
+  // Generar layout genérico basado en la configuración
+  const layout = buildGenericLayout();
+  closeCfg();
+  buildBuilding(layout);
+}
+
+function buildGenericLayout() {
+  const layout = {};
+  for (let fi = 0; fi < bldCfg.floors; fi++) {
+    const floorNum = bldCfg.startFlr + fi;
+    let activeCols = bldCfg.cols;
+    let activeRows = bldCfg.rows;
+
+    bldCfg.setbacks.forEach(sb => {
+      if (floorNum >= sb.fromFloor) {
+        if (sb.face === 'E' || sb.face === 'W') activeCols = Math.max(1, activeCols - sb.amount);
+        if (sb.face === 'N' || sb.face === 'S') activeRows = Math.max(1, activeRows - sb.amount);
+      }
+    });
+
+    const rows = [];
+    let aptIdx = 1;
+    for (let ri = 0; ri < activeRows; ri++) {
+      const row = [];
+      for (let ci = 0; ci < activeCols; ci++) {
+        row.push(floorNum * 100 + aptIdx++);
+      }
+      // Pad a maxCols con null
+      while (row.length < bldCfg.cols) row.push(null);
+      rows.push(row);
+    }
+    // Pad a maxRows con filas nulas
+    while (rows.length < bldCfg.rows) {
+      rows.push(new Array(bldCfg.cols).fill(null));
+    }
+    layout[floorNum] = rows;
+  }
+  return layout;
+}
+
+function addSB() {
+  sbList.push({ fromFloor: bldCfg.startFlr + 2, face: 'N', amount: 1 });
+  renderSBList();
+}
+
+function removeSB(i) { sbList.splice(i, 1); renderSBList(); }
+
+function renderSBList() {
+  const el = document.getElementById('sbList');
+  if (!sbList.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:8px">Sin retrocesos configurados</div>';
+    return;
+  }
+  el.innerHTML = sbList.map((sb, i) => `
+    <div class="sb-item">
+      <span class="sb-lbl">Cara</span>
+      <select class="fi" style="padding:4px 6px" onchange="sbList[${i}].face=this.value">
+        <option value="N" ${sb.face==='N'?'selected':''}>Norte</option>
+        <option value="S" ${sb.face==='S'?'selected':''}>Sur</option>
+        <option value="E" ${sb.face==='E'?'selected':''}>Este</option>
+        <option value="W" ${sb.face==='W'?'selected':''}>Oeste</option>
+      </select>
+      <input type="number" class="fi" style="padding:4px 6px" placeholder="Desde piso"
+        value="${sb.fromFloor}" min="1"
+        onchange="sbList[${i}].fromFloor=parseInt(this.value)">
+      <input type="number" class="fi" style="padding:4px 6px" placeholder="Quitar"
+        value="${sb.amount}" min="1" max="5"
+        onchange="sbList[${i}].amount=parseInt(this.value)">
+      <button class="sb-rm" onclick="removeSB(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+// ═══════════════════════════════════════════════════
+// 14. RENDER LOOP
+// ═══════════════════════════════════════════════════
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+
+// ═══════════════════════════════════════════════════
+// 15. ARRANQUE + PWA
+// ═══════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  initThree();
+  updateCam();
+
+  // ── Registrar Service Worker ──
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+      .then(r => console.log('SW registrado:', r.scope))
+      .catch(e => console.warn('SW error:', e));
+  }
+});
+
+// ── Banner de instalación PWA ──
+let deferredPrompt = null;
+const installBanner = document.getElementById('installBanner');
+const installBtn    = document.getElementById('installBtn');
+const installDismiss= document.getElementById('installDismiss');
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  if (installBanner) installBanner.style.display = 'flex';
+});
+
+if (installBtn) {
+  installBtn.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    if (installBanner) installBanner.style.display = 'none';
+  });
+}
+
+if (installDismiss) {
+  installDismiss.addEventListener('click', () => {
+    if (installBanner) installBanner.style.display = 'none';
+  });
+}
+
+window.addEventListener('appinstalled', () => {
+  if (installBanner) installBanner.style.display = 'none';
+  deferredPrompt = null;
+});
+</script>
+</body>
+</html>
