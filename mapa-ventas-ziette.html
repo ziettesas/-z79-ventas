@@ -56,6 +56,28 @@
     .stat.total .stat-v { color:var(--orange); }
     @media(max-width:600px){ .hdr-stats{display:none} .hdr-sub{display:none} }
 
+    /* ─── CUADRO ESTADÍSTICAS FLOTANTE (esquina inferior derecha) ─── */
+    #statsBox {
+      position:fixed; bottom:18px; right:16px; z-index:100;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:12px; padding:10px 14px;
+      display:flex; flex-direction:column; gap:6px;
+      min-width:150px;
+    }
+    .sb-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .sb-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+    .sb-dot.avail { background:var(--green); }
+    .sb-dot.sold  { background:var(--gray-apt); }
+    .sb-dot.total { background:var(--orange); }
+    .sb-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; flex:1; }
+    .sb-vals  { display:flex; align-items:baseline; gap:5px; }
+    .sb-count { font-size:16px; font-weight:700; }
+    .sb-pct   { font-size:11px; color:var(--muted); }
+    .sb-count.avail { color:var(--green-light); }
+    .sb-count.sold  { color:var(--gray-light); }
+    .sb-count.total { color:var(--orange); }
+    .sb-divider { height:1px; background:var(--border); margin:2px 0; }
+
     /* ─── CANVAS ─── */
     #cv {
       position:fixed; top:var(--header-h); left:0; right:0; bottom:0;
@@ -238,6 +260,35 @@
 
 <!-- ═══════════ CANVAS ═══════════ -->
 <canvas id="cv"></canvas>
+
+<!-- ═══════════ ESTADÍSTICAS FLOTANTES ═══════════ -->
+<div id="statsBox">
+  <div class="sb-row">
+    <div class="sb-dot avail"></div>
+    <span class="sb-label">Disponibles</span>
+    <div class="sb-vals">
+      <span class="sb-count avail" id="sbAvail">—</span>
+      <span class="sb-pct" id="sbAvailPct"></span>
+    </div>
+  </div>
+  <div class="sb-divider"></div>
+  <div class="sb-row">
+    <div class="sb-dot sold"></div>
+    <span class="sb-label">Vendidos</span>
+    <div class="sb-vals">
+      <span class="sb-count sold" id="sbSold">—</span>
+      <span class="sb-pct" id="sbSoldPct"></span>
+    </div>
+  </div>
+  <div class="sb-divider"></div>
+  <div class="sb-row">
+    <div class="sb-dot total"></div>
+    <span class="sb-label">Total</span>
+    <div class="sb-vals">
+      <span class="sb-count total" id="sbTotal">—</span>
+    </div>
+  </div>
+</div>
 
 <!-- ═══════════ TOOLTIP ═══════════ -->
 <div id="tip"></div>
@@ -986,6 +1037,7 @@ function updateStats(numFloors) {
   const total    = avail + sold;
   const pctAvail = total > 0 ? Math.round(avail / total * 100) : 0;
   const pctSold  = total > 0 ? Math.round(sold  / total * 100) : 0;
+  // Header stats
   document.getElementById('sAvail').textContent    = avail;
   document.getElementById('sAvailPct').textContent = pctAvail + '%';
   document.getElementById('sSold').textContent     = sold;
@@ -994,6 +1046,12 @@ function updateStats(numFloors) {
   document.getElementById('hdrTitle').textContent  = bldCfg.name || 'Mapa de Ventas';
   document.getElementById('hdrSub').textContent    =
     `${numFloors} pisos · ${total} aptos · ${avail} disponibles`;
+  // Cuadro flotante inferior derecha
+  document.getElementById('sbAvail').textContent    = avail;
+  document.getElementById('sbAvailPct').textContent = pctAvail + '%';
+  document.getElementById('sbSold').textContent     = sold;
+  document.getElementById('sbSoldPct').textContent  = pctSold + '%';
+  document.getElementById('sbTotal').textContent    = total;
 }
 
 // ═══════════════════════════════════════════════════
