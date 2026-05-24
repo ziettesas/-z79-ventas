@@ -848,14 +848,17 @@ function buildBuilding(layout) {
   floors.forEach((floorNum, fi) => {
     const rows = layout[floorNum];
 
-    // Separador de piso (losa)
+    // Separador de piso (losa) — ancho ajustado al footprint real de este piso
     if (fi > 0) {
-      const floorW = totalW + GAP;
-      const floorD = totalD + GAP;
-      const slabGeo = new THREE.BoxGeometry(floorW, 0.1, floorD);
-      const slabMat = new THREE.MeshLambertMaterial({ color: 0x0c0c0c });
+      let maxColFloor = -1;
+      rows.forEach(row => row.forEach((n, ci) => { if (n !== null) maxColFloor = Math.max(maxColFloor, ci); }));
+      const floorW    = (maxColFloor + 1) * (AW + GAP);
+      const floorD    = totalD + GAP;
+      const floorSlabCX = offX + floorW / 2 - GAP / 2;
+      const slabGeo = new THREE.BoxGeometry(floorW, 0.12, floorD);
+      const slabMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
       const slab    = new THREE.Mesh(slabGeo, slabMat);
-      slab.position.set(0, yBase + fi * (AH + GAP) - GAP * 0.5 - 0.05, 0);
+      slab.position.set(floorSlabCX, yBase + fi * (AH + GAP) - GAP * 0.5 - 0.06, 0);
       scene.add(slab);
       floorLabels.push(slab);
     }
@@ -870,7 +873,19 @@ function buildBuilding(layout) {
     // Apartamentos
     rows.forEach((row, ri) => {
       row.forEach((aptNum, ci) => {
-        if (aptNum === null) return; // hueco por retroceso
+        if (aptNum === null) {
+          // Núcleo estructural (escaleras/ascensor): bloque sólido de concreto
+          const cx = offX + ci * (AW + GAP) + AW / 2;
+          const cy = yBase + fi * (AH + GAP) + AH / 2;
+          const cz = offZ + ri * (AD + GAP) + AD / 2;
+          const cGeo  = new THREE.BoxGeometry(AW + GAP * 0.9, AH + GAP * 0.9, AD + GAP * 0.9);
+          const cMat  = new THREE.MeshPhongMaterial({ color: 0x252525, shininess: 0 });
+          const cMesh = new THREE.Mesh(cGeo, cMat);
+          cMesh.position.set(cx, cy, cz);
+          scene.add(cMesh);
+          floorLabels.push(cMesh);
+          return;
+        }
 
         const data  = aptDataMap[String(aptNum)] || { a: 0, p: 0, s: 'Disponible' };
         const color = aptColor(data.s);
