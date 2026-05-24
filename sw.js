@@ -3,7 +3,7 @@
 //  Estrategia: cache-first para assets locales,
 //  network-first para CDNs externos.
 // ══════════════════════════════════════════════════
-const CACHE  = 'ziette-z79-v1.3';
+const CACHE  = 'ziette-z79-v1.4';
 const LOCAL  = [
   './mapa-ventas-ziette.html',
   './manifest.json',

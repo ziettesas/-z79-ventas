@@ -1079,7 +1079,7 @@ function buildLayoutFromData(data) {
 // ═══════════════════════════════════════════════════
 // ── URL del Google Sheet publicado como CSV ──────────────────
 // Pega aquí el link que te da Google Sheets al publicar como CSV:
-const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSDFntyaZKeLAiXrjO0mWaDr5QVSCAR7EAUVzxq7Cwo4eXzey1-z8pN8ekgCU_zJA/pub?gid=559514819&single=true&output=csv';
+const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/1LOQZ5S2orQHhYLvQHSla-iaTMTzMYzX5/export?format=csv';
 
 function startDemo() {
   if (typeof THREE === 'undefined') {
@@ -1140,6 +1140,20 @@ function loadFromSheets(url) {
     });
 }
 
+function parseCSVLine(line) {
+  // Parser robusto: maneja campos entre comillas con comas internas
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+    else { cur += c; }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
 function parseSheetCSV(csv) {
   const lines = csv.trim().split('\n').filter(l => l.trim());
   const data  = {};
@@ -1149,14 +1163,17 @@ function parseSheetCSV(csv) {
     if (lines[i].toLowerCase().includes('apto')) { startRow = i + 1; break; }
   }
   for (let i = startRow; i < lines.length; i++) {
-    const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
-    const apto   = parseInt(cols[0]);
-    const area   = parseFloat(cols[1]) || 0;
-    const precio = parseFloat((cols[2] || '0').replace(/[^0-9.]/g, '')) || 0;
+    const cols = parseCSVLine(lines[i]);
+    const apto = parseInt(cols[0]);
+    if (isNaN(apto) || apto <= 0) continue;
+    // Área: formato colombiano usa coma como decimal (40,37 → 40.37)
+    const areaStr = (cols[1] || '0').replace(/\./g, '').replace(',', '.');
+    const area    = parseFloat(areaStr) || 0;
+    // Precio: formato colombiano usa puntos como miles (687.616.000 → 687616000)
+    const precioStr = (cols[2] || '0').replace(/\./g, '').replace(',', '');
+    const precio    = parseInt(precioStr) || 0;
     const estado = (cols[3] || 'Disponible').trim();
-    if (!isNaN(apto) && apto > 0) {
-      data[apto] = { a: area, p: precio, s: estado };
-    }
+    data[apto] = { a: area, p: precio, s: estado };
   }
   return data;
 }
